@@ -31,9 +31,6 @@ Browser / curl / test script
                                │  ws-backend   │  Python WebSocket echo server
                                └──────────────┘
 
-┌──────────────┐
-│    statsd     │  UDP 8125 — receives IAG metrics (custom Python listener)
-└──────────────┘
 ```
 
 ### Services
@@ -44,7 +41,6 @@ Browser / curl / test script
 | `nginx` | `nginx:alpine` | 80 | **8080** (direct, bypasses IAG) |
 | `ws-backend` | `./ws-backend` (Python 3.12) | 8765 | — |
 | `jupyter` | `quay.io/jupyter/scipy-notebook:latest` | 8888 | — |
-| `statsd` | `./statsd` (Python 3.12 Alpine) | 8125/udp | — |
 
 ---
 
@@ -108,7 +104,7 @@ open http://localhost:8080/           # WebSocket Demo direct (bypasses IAG)
 # Stop containers (preserves volumes)
 docker compose down
 
-# Stop and remove volumes (clears IAG trace logs and statsd logs)
+# Stop and remove volumes (clears IAG trace logs)
 docker compose down -v
 ```
 
@@ -182,7 +178,7 @@ All checks passed. IAG → Jupyter WebSocket pipeline is working.
 
 ```
 iag/
-├── docker-compose.yaml         # Orchestrates all 5 services
+├── docker-compose.yaml         # Orchestrates all 4 services
 │
 ├── iag/
 │   └── config/
@@ -197,10 +193,6 @@ iag/
 │   ├── Dockerfile
 │   ├── requirements.txt        # websockets==14.1
 │   └── server.py               # Python asyncio WebSocket echo server
-│
-├── statsd/
-│   ├── Dockerfile
-│   └── server.py               # UDP listener → /var/log/statsd/statsd.log
 │
 └── tests/
     └── test_jupyter_ws.py      # End-to-end WebSocket kernel test
@@ -295,41 +287,6 @@ Trace output is written to the `iag-logs` Docker volume. To read it:
 docker exec iag-iag-1 tail -f /var/iag/logs/trace.log
 ```
 
-### Statistics (statsd)
-
-```yaml
-logging:
-  statistics:
-    server: statsd      # Docker Compose service name
-    port: 8125
-    frequency: 10       # Flush interval in seconds
-    components:
-      - iag.websocket.requests
-      - iag.websocket.rejected
-      - iag.websocket.timeouts
-      - iag.websocket.active
-      - pdweb.http
-```
-
-The `statsd` service is a lightweight Python UDP listener that writes received
-metrics to `/var/log/statsd/statsd.log` (in the `statsd-logs` Docker volume).
-
-To tail the statsd log:
-
-```bash
-docker exec iag-statsd-1 tail -f /var/log/statsd/statsd.log
-```
-
-> **macOS / Apple Silicon note:** IAG runs under Rosetta emulation and
-> webseald's internal DNS resolver may not resolve Docker service names.
-> If no metrics appear in the statsd log after several minutes of WebSocket
-> activity, replace `server: statsd` with the container's actual IP:
->
-> ```bash
-> docker inspect iag-statsd-1 | grep '"IPAddress"'
-> # Then set: server: 172.18.0.x
-> ```
-
 ---
 
 ## Jupyter Configuration
@@ -402,7 +359,7 @@ Also confirm the `/jupyter` resource server appears before `/` in `iag.yaml`.
 The requested image's platform (linux/amd64) does not match the detected host platform (linux/arm64/v8)
 ```
 This warning is expected. IAG runs under Rosetta 2 emulation and works correctly.
-All other images (`nginx`, `jupyter`, `ws-backend`, `statsd`) are native ARM64.
+All other images (`nginx`, `jupyter`, `ws-backend`) are native ARM64.
 
 ---
 
@@ -414,9 +371,6 @@ All other images (`nginx`, `jupyter`, `ws-backend`, `statsd`) are native ARM64.
   under `server.ssl.front_end` for production deployments.
 - **Persistent notebooks:** Mount a host volume into the Jupyter container for
   notebook persistence across restarts.
-- **Production statsd:** Replace the custom statsd listener with a full
-  [Graphite + statsd](https://graphiteapp.org/) stack or route metrics to
-  Prometheus via the [statsd_exporter](https://github.com/prometheus/statsd_exporter).
 
 ---
 
