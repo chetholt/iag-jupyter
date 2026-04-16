@@ -1,0 +1,66 @@
+version: "25.12"
+
+# ----------------------------------------------------------------------------
+# Server front-end: plain HTTP on port 8080 (mapped to host port 9080).
+# worker_threads controls the general HTTP thread pool.
+# WebSocket thread pool is set via advanced.configuration below because the
+# YAML key (server.websockets.worker_threads) is not mapped by this IAG
+# version; the raw webseald.conf stanza injection is the reliable path.
+# ----------------------------------------------------------------------------
+server:
+  protocols:
+    - http
+  worker_threads: 300
+
+# Sets [websocket] max-worker-threads / idle-worker-threads in webseald.conf.
+advanced:
+  configuration:
+    - stanza: websocket
+      entry: max-worker-threads
+      operation: set
+      value: "50"
+    - stanza: websocket
+      entry: idle-worker-threads
+      operation: set
+      value: "25"
+
+# TCP (plain-HTTP) junction to the nginx container on port 80.
+# nginx in turn proxies WebSocket connections (/ws) to ws-backend:8765.
+resource_servers:
+  # Jupyter: transparent_path keeps the /jupyter/ prefix intact when forwarding,
+  # matching Jupyter's base_url=/jupyter/ configuration.
+  - path: /jupyter
+    connection_type: tcp
+    transparent_path: true
+    servers:
+      - host: jupyter
+        port: 8888
+
+  # Default junction to nginx (catches all other traffic).
+  - path: /
+    connection_type: tcp
+    transparent_path: false
+    servers:
+      - host: nginx
+        port: 80
+
+# Access policy: allow ALL users (including unauthenticated) to every path.
+# Change "anyuser" to "anyauth" once an identity provider is configured.
+policies:
+  access:
+    - name: allow-all
+      paths:
+        - path: /*
+          match_type: wildcard
+      rule: "anyuser entitledto anyresource"
+
+logging:
+  # Tracing: pdweb.debug (general proxy) and pdweb.websocket (WS-specific)
+  # Written to /var/iag/logs/trace.log inside the IAG container.
+  tracing:
+    - file_name: /var/iag/logs/trace.log
+      component: pdweb.debug
+      level: 9
+    - file_name: /var/iag/logs/trace.log
+      component: pdweb.websocket
+      level: 9

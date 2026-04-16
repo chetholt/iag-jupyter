@@ -1,0 +1,44 @@
+services:
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "8080:80"   # Direct access (bypass IAG) - useful for comparison testing
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/html:/usr/share/nginx/html:ro
+    depends_on:
+      - ws-backend
+
+  ws-backend:
+    build: ./ws-backend
+    expose:
+      - "8765"
+
+  jupyter:
+    image: quay.io/jupyter/scipy-notebook:latest
+    command: >-
+      start-notebook.sh
+      --ServerApp.token=''
+      --ServerApp.password=''
+      --ServerApp.base_url=/jupyter/
+      --ServerApp.allow_origin='*'
+      --ServerApp.ip=0.0.0.0
+      --ServerApp.port=8888
+    environment:
+      - JUPYTER_TOKEN=
+    expose:
+      - "8888"
+
+  iag:
+    image: icr.io/ibmappgateway/ibm-application-gateway:25.12
+    ports:
+      - "9080:8080"  # IAG HTTP front-end (IAG listens on 8080, exposed on host 9080)
+    volumes:
+      - ./iag/config:/var/iag/config:ro
+      - iag-logs:/var/iag/logs    # writable so IAG can write trace.log
+    depends_on:
+      - nginx
+      - jupyter
+
+volumes:
+  iag-logs:
